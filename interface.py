@@ -270,42 +270,42 @@ class ModuleInterface:
             track_extra_kwargs={"data": {t.get("id"): t for t in artist_tracks}},
         )
 
+    # ---- UPDATED get_album_info ----
     def get_album_info(self, album_id: str, data=None, is_chart: bool = False) -> AlbumInfo or None:
-        # check if album is already in album cache, add it
         if data is None:
             data = {}
 
         try:
-            album_data = data.get(album_id) if album_id in data else self.session.get_release(album_id)
+            album_data = data.get(album_id) or self.session.get_release(album_id)
         except BeatportError as e:
             self.print(f"Beatport: Album {album_id} is {str(e)}")
             return
 
         tracks_data = self.session.get_release_tracks(album_id)
 
-        # now fetch all the found total_items
         tracks = tracks_data.get("results")
         total_tracks = tracks_data.get("count")
-        for page in range(2, total_tracks // 100 + 2):
+        for page in range(2, (total_tracks - 1) // 100 + 2):
             print(f"Fetching {len(tracks)}/{total_tracks}", end="\r")
             tracks += self.session.get_release_tracks(album_id, page=page).get("results")
 
         cache = {"data": {album_id: album_data}}
         for i, track in enumerate(tracks):
-            # add the track numbers
             track["number"] = i + 1
-            # add the modified track to the track_extra_kwargs
             cache["data"][track.get("id")] = track
+
+        # get all artists names for proper tagging
+        album_artists = [a.get("name") for a in album_data.get("artists", [])]
+        main_artist = album_artists[0] if album_artists else "Unknown"
 
         return AlbumInfo(
             name=album_data.get("name"),
             release_year=album_data.get("publish_date")[:4] if album_data.get("publish_date") else None,
-            # sum up all the individual track lengths
-            duration=sum([t.get("length_ms") // 1000 for t in tracks]),
+            duration=sum([(t.get("length_ms") or 0) // 1000 for t in tracks]),
             upc=album_data.get("upc"),
             cover_url=self._generate_artwork_url(album_data.get("image").get("dynamic_uri"), self.cover_size),
-            artist=album_data.get("artists")[0].get("name"),
-            artist_id=album_data.get("artists")[0].get("id"),
+            artist=main_artist,
+            artist_id=album_data.get("artists")[0].get("id") if album_data.get("artists") else None,
             tracks=[t.get("id") for t in tracks],
             track_extra_kwargs=cache,
         )
